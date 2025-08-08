@@ -1,0 +1,33 @@
+{
+  "mcpServers": {
+    "voiceai-memory": {
+      "command": "node",
+      "args": ["mcp-memory-server.js"],
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "description": "VoiceAI Memory Server - Tracks project state, progress, and context",
+      "capabilities": [
+        "memory_storage",
+        "progress_tracking",
+        "issue_management",
+        "context_preservation",
+        "achievement_recording"
+      ]
+    }
+  },
+  "memorySettings": {
+    "autoSave": true,
+    "backupInterval": "1h",
+    "maxMemorySize": "10MB",
+    "retentionDays": 30
+  },
+  "trackingFeatures": {
+    "projectStatus": true,
+    "conversationContext": true,
+    "technicalState": true,
+    "achievements": true,
+    "issues": true,
+    "progress": true
+  }
+}
