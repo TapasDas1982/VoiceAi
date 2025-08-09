@@ -1,481 +1,311 @@
-# VoiceAI - AI-Powered SIP Voice Assistant
+# VoiceAI LiveKit Agents
 
-🤖 **Real-time voice communication system integrating SIP telephony with OpenAI's Realtime API**
+A modern voice AI system built with LiveKit Agents framework, providing real-time conversational AI capabilities with advanced voice processing, speech-to-text, and text-to-speech integration.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D16.0.0-brightgreen)](https://nodejs.org/)
-[![GitHub Repository](https://img.shields.io/badge/GitHub-TapasDas1982%2FVoiceAi-blue)](https://github.com/TapasDas1982/VoiceAi.git)
+## 🚀 Features
 
-## 📋 Table of Contents
-
-- [Overview](#overview)
-- [Features](#features)
-- [Architecture](#architecture)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [API Reference](#api-reference)
-- [Testing](#testing)
-- [Deployment](#deployment)
-- [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
-- [License](#license)
-
-## 🎯 Overview
-
-VoiceAI is a sophisticated real-time voice communication system that bridges traditional SIP telephony with modern AI capabilities. It enables natural voice conversations through phone calls powered by OpenAI's GPT-4 Realtime API, providing enterprise-grade voice AI solutions.
-
-### Key Capabilities
-
-- **Real-time Voice AI**: Natural conversations without transcription delays
-- **SIP Protocol Compliance**: Full RFC 3261 support with digest authentication
-- **Multi-trunk Support**: Handle multiple SIP trunk configurations
-- **Auto-answer Capability**: RFC 5373 Answer-Mode header support
-- **Call Control**: Transfer, end calls, and manage sessions via AI commands
-- **Enterprise Ready**: Error recovery, monitoring, and production deployment
-
-### Use Cases
-
-- **Customer Service**: AI-powered phone support systems
-- **Voice Assistants**: Traditional phone-based AI interactions
-- **Call Routing**: Intelligent call distribution and handling
-- **Voice Automation**: Automated phone system responses
-
-## ✨ Features
-
-### 🔊 Audio Processing
-- G.711 μ-law codec support (standard telephony)
-- RTP protocol for real-time audio streaming
-- PCM16 format conversion for OpenAI compatibility
-- Low-latency audio processing (<500ms target)
-
-### 📞 SIP Integration
-- Full SIP protocol implementation (RFC 3261)
-- Digest authentication support
-- Multi-trunk configuration
-- Call state management (INVITE, ACK, BYE)
-- NAT traversal and keep-alive mechanisms
-
-### 🤖 AI Integration
-- OpenAI Realtime API with GPT-4
-- Real-time speech-to-text (Whisper-1)
-- Natural voice synthesis (multiple voice options)
-- Conversation memory and context management
-- Intent detection and response generation
-
-### 📊 Monitoring & Management
-- Web-based dashboard (port 3000)
-- Real-time call monitoring
-- System health checks
-- Performance metrics
-- Graceful shutdown and error recovery
-
-## 🏗️ Architecture
-
-```
-📞 SIP Trunk (UCM6202/Provider)
-         ↓
-🔁 SIP Gateway (Node.js SIP Client)
-         ↓ [Port 5061 UDP]
-🎙️ RTP Audio Capture
-         ↓ [Port 5004 UDP]
-🧠 OpenAI Realtime API (Whisper STT)
-         ↓ [WebSocket WSS]
-🗃️ Intent Detection (GPT-4 + Google Sheets)
-         ↓
-🗣️ Fast TTS (OpenAI Voice)
-         ↓
-🔊 RTP Audio Response
-         ↓
-📞 Back to SIP Call
-```
-
-### Component Architecture
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   SIP Client    │◄──►│  Audio Handler  │◄──►│  AI Processor   │
-│  (sip-client.js)│    │(audio-handler.js)│    │(ai-processor.js)│
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         ▲                        ▲                        ▲
-         │                        │                        │
-         └────────────────────────┼────────────────────────┘
-                                  ▼
-                        ┌─────────────────┐
-                        │    Main.js      │
-                        │  (Orchestrator) │
-                        └─────────────────┘
-                                  ▲
-                                  │
-                        ┌─────────────────┐
-                        │   Config.js     │
-                        │ (Configuration) │
-                        └─────────────────┘
-```
+- **Real-time Voice AI**: Powered by LiveKit Agents framework
+- **OpenAI Integration**: Uses OpenAI's Realtime API for natural conversations
+- **Voice Activity Detection**: Silero VAD for accurate speech detection
+- **Web Dashboard**: Real-time monitoring and management interface
+- **Scalable Architecture**: Built for production deployment
+- **Telephony Ready**: SIP integration capabilities
+- **Modern Tech Stack**: Node.js with ES modules
 
 ## 📋 Prerequisites
 
-### System Requirements
-- **Node.js**: 16.0.0 or higher (18+ recommended)
-- **Operating System**: Windows/Linux compatible
-- **Network**: UDP ports 5060 (SIP) and 5004 (RTP) available
-- **Memory**: Minimum 512MB RAM
+- Node.js 18+ 
+- LiveKit Server (local or cloud)
+- OpenAI API key with Realtime API access
+- Windows/Linux/macOS
 
-### External Services
-- **OpenAI API**: Valid API key with Realtime API access
-- **SIP Server**: PBX or SIP trunk provider
-- **Google Sheets** (Optional): For training data and responses
+## 🛠️ Installation
 
-## 🚀 Installation
+1. **Clone and setup**:
+   ```bash
+   cd VoiceAI
+   npm install
+   ```
 
-### 1. Clone the Repository
-```bash
-git clone https://github.com/TapasDas1982/VoiceAi.git
-cd VoiceAi
-```
+2. **Configure environment variables**:
+   Create or update `.env` file:
+   ```env
+   # LiveKit Configuration
+   LIVEKIT_URL=ws://localhost:7880
+   LIVEKIT_API_KEY=your_livekit_api_key
+   LIVEKIT_API_SECRET=your_livekit_api_secret
+   LIVEKIT_ROOM=voice-ai-room
 
-### 2. Install Dependencies
-```bash
-npm install
-```
+   # OpenAI Configuration
+   OPENAI_API_KEY=sk-your_openai_api_key
+   OPENAI_MODEL=gpt-4o-realtime-preview-2024-10-01
+   OPENAI_VOICE=alloy
+   OPENAI_TEMPERATURE=0.7
+   OPENAI_MAX_TOKENS=4096
 
-### 3. Environment Configuration
-Copy the example environment file and configure:
-```bash
-cp .env.example .env
-```
+   # Agent Configuration
+   AGENT_NAME=VoiceAI Assistant
+   ENABLE_GREETING=true
+   GREETING_MESSAGE=Hello! I'm your AI voice assistant. How can I help you today?
+   AI_INSTRUCTIONS=You are a friendly and professional voice assistant...
 
-### 4. Google Cloud Setup (Optional)
-If using Google Sheets integration:
-1. Create a Google Cloud project
-2. Enable Google Sheets API
-3. Create a service account
-4. Download `credentials.json`
-5. Place in project root
+   # Audio Configuration
+   AUDIO_SAMPLE_RATE=16000
+   AUDIO_CHANNELS=1
+   VAD_SENSITIVITY=0.5
 
-## ⚙️ Configuration
+   # Dashboard Configuration
+   PORT=3000
+   HOST=localhost
+   ENABLE_DASHBOARD=true
 
-### Environment Variables (.env)
+   # Logging Configuration
+   LOG_LEVEL=info
+   ENABLE_FILE_LOGGING=true
+   LOG_FILE=voiceai-agent.log
+   ```
 
-```env
-# OpenAI Configuration
-OPENAI_API_KEY=sk-your-openai-api-key-here
+3. **Start LiveKit Server** (if running locally):
+   ```bash
+   # Download and run LiveKit server
+   # See: https://docs.livekit.io/realtime/server/deployment/
+   ```
 
-# SIP Server Configuration
-SIP_SERVER=your.sip.server.com
-SIP_EXTENSION=32
-SIP_PASSWORD=your_sip_password
-SIP_PORT=5060
-
-# Network Configuration
-RTP_PORT=5004
-HTTP_PORT=3000
-
-# AI Configuration
-AI_VOICE=alloy
-AI_INSTRUCTIONS="You are a helpful voice assistant."
-
-# Google Sheets (Optional)
-GOOGLE_SHEET_ID=your_google_sheet_id
-
-# Development Options
-SKIP_SIP_REGISTRATION=false
-```
-
-### Available AI Voices
-- `alloy` - Balanced and natural
-- `echo` - Clear and articulate
-- `fable` - Warm and engaging
-- `onyx` - Deep and authoritative
-- `nova` - Bright and energetic
-- `shimmer` - Soft and gentle
-
-## 🎮 Usage
+## 🚀 Usage
 
 ### Start the Application
+
 ```bash
-# Full application with dashboard
+# Start both agent and dashboard
 npm start
 
-# Development mode with auto-restart
-npm run dev
+# Or start agent only
+npm run agent
 
-# SIP client only
-npm run sip-only
-
-# Dashboard only
-npm run dashboard-only
+# Or start dashboard only
+npm run dashboard
 ```
 
-### Testing Components
-```bash
-# Run all system tests
-npm test
+### Access the Dashboard
 
-# Test specific components
-npm run test-openai
-npm run test-sheets
-npm run test-sip
-
-# Show configuration
-npm run config
+Open your browser and navigate to:
+```
+http://localhost:3000
 ```
 
-### Making Your First Call
-1. Start the system: `npm start`
-2. Wait for "Ready to accept calls" message
-3. Dial the configured SIP extension
-4. System auto-answers and begins AI conversation
-5. Speak naturally - AI responds with voice
-6. Hang up to end the call
-
-### Web Dashboard
-Access the monitoring dashboard at: `http://localhost:3000`
-
-Features:
-- Real-time call status
-- System health monitoring
-- Active call management
-- Performance metrics
+The dashboard provides:
+- Real-time system status
+- Active session monitoring
 - Configuration overview
+- Performance metrics
+- Activity logs
 
-## 📡 API Reference
+### Connect Clients
 
-### Main Application Class
-```javascript
-const VoiceAI = require('./main');
-
-const voiceAI = new VoiceAI();
-voiceAI.start();
-```
-
-### Event Handlers
-```javascript
-// Listen for incoming calls
-voiceAI.sipClient.on('incomingCall', (callId, sipMessage) => {
-    console.log(`Incoming call: ${callId}`);
-});
-
-// Handle call establishment
-voiceAI.sipClient.on('callEstablished', (callId) => {
-    console.log(`Call established: ${callId}`);
-});
-
-// Process audio data
-voiceAI.audioHandler.on('audioReceived', (callId, audioData) => {
-    // Process incoming audio
-});
-```
-
-### Configuration API
-```javascript
-const config = require('./config');
-
-// Get SIP configuration
-const sipConfig = config.getSIPConfig();
-
-// Get AI configuration
-const aiConfig = config.getAIConfig();
-
-// Check if feature is enabled
-const dashboardEnabled = config.isEnabled('dashboard');
-```
-
-## 🧪 Testing
-
-### Unit Tests
-```bash
-# Test memory management
-node test-memory-manager.js
-
-# Test MCP integration
-node test-mcp-memory.js
-```
-
-### Integration Testing
-```bash
-# Start main system
-node main.js
-
-# Test memory CLI
-node memory-cli.js
-
-# Check dashboard
-curl http://localhost:3000/api/status
-```
-
-### SIP Testing Checklist
-- [ ] SIP registration successful
-- [ ] Incoming calls handled (INVITE → 180 → 200 → ACK)
-- [ ] Audio streams flowing bidirectionally
-- [ ] AI processing and response
-- [ ] Call termination (BYE handling)
-- [ ] Error recovery mechanisms
-
-## 🚀 Deployment
-
-### Development Mode
-```bash
-npm install
-npm start
-```
-
-### Production Deployment
-```bash
-# Using PM2 process manager
-npm install -g pm2
-pm2 start main.js --name "voiceai-sip"
-pm2 startup
-pm2 save
-```
-
-### Docker Deployment
-```dockerfile
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-COPY . .
-EXPOSE 3000 5060/udp 5004/udp
-CMD ["npm", "start"]
-```
-
-### Environment-Specific Configuration
-```bash
-# Production
-NODE_ENV=production npm start
-
-# Staging
-NODE_ENV=staging npm start
-
-# Development
-NODE_ENV=development npm run dev
-```
-
-## 🔧 Troubleshooting
-
-### Common Issues
-
-#### SIP Registration Fails
-```bash
-# Check SIP server connectivity
-telnet your.sip.server.com 5060
-
-# Verify credentials in .env
-echo $SIP_EXTENSION
-echo $SIP_PASSWORD
-```
-
-#### Audio Quality Issues
-- Verify G.711 μ-law codec support
-- Check RTP port accessibility (5004)
-- Monitor network latency and packet loss
-- Ensure proper NAT configuration
-
-#### AI Response Delays
-- Verify OpenAI API key validity
-- Check internet connectivity
-- Monitor OpenAI API rate limits
-- Review AI instructions complexity
-
-#### Memory Leaks
-```bash
-# Monitor memory usage
-node --inspect main.js
-
-# Check for unclosed connections
-lsof -p <process_id>
-```
-
-### Debug Mode
-```bash
-# Enable verbose logging
-DEBUG=voiceai:* npm start
-
-# Component-specific debugging
-DEBUG=voiceai:sip npm start
-DEBUG=voiceai:audio npm start
-DEBUG=voiceai:ai npm start
-```
-
-### Performance Monitoring
-- **Audio Latency**: Target <500ms end-to-end
-- **SIP Response**: <100ms for signaling
-- **AI Response**: <2s for initial response
-- **Memory Usage**: Stable during long calls
-- **Uptime**: 99.9% availability target
+Clients can connect to the LiveKit room using:
+- **Room Name**: `voice-ai-room` (or configured value)
+- **LiveKit URL**: Your LiveKit server URL
+- **Access Token**: Generated using LiveKit API credentials
 
 ## 📁 Project Structure
 
 ```
 VoiceAI/
-├── main.js                    # Main orchestrator and entry point
-├── app.js                     # Application wrapper with dashboard
-├── index.js                   # Legacy SIP client entry point
-├── config.js                  # Configuration management
-├── sip-client.js              # SIP protocol handling
-├── audio-handler.js           # RTP audio processing
-├── ai-processor.js            # OpenAI integration
-├── memory-manager.js          # Conversation memory
-├── websocket-manager.js       # WebSocket connections
-├── dashboard.js               # Web dashboard
-├── utils.js                   # Utility functions
-├── timeout-manager.js         # Timeout handling
-├── multi-trunk-manager.js     # Multiple trunk support
-├── sip-session.js             # SIP session management
-├── sip-parser-enhanced.js     # Enhanced SIP parsing
-├── mcp-memory-server.js       # MCP memory server
-├── memory-cli.js              # Memory command line interface
-├── package.json               # Dependencies and scripts
-├── .env                       # Environment variables
-├── .gitignore                 # Git ignore rules
-├── credentials.json.example   # Google Cloud credentials template
-├── MASTER_DOCUMENTATION.md    # Comprehensive documentation
-├── CLAUDE.md                  # AI assistant documentation
-└── README.md                  # This file
+├── index.js          # Main application entry point
+├── agent.js          # VoiceAI Agent implementation
+├── config.js         # Configuration management
+├── dashboard.js      # Web dashboard server
+├── package.json      # Dependencies and scripts
+├── .env             # Environment variables
+├── README.md        # This file
+└── voiceai-agent.log # Application logs
 ```
+
+## 🔧 Configuration
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|----------|
+| `LIVEKIT_URL` | LiveKit server WebSocket URL | `ws://localhost:7880` |
+| `LIVEKIT_API_KEY` | LiveKit API key | Required |
+| `LIVEKIT_API_SECRET` | LiveKit API secret | Required |
+| `OPENAI_API_KEY` | OpenAI API key | Required |
+| `OPENAI_MODEL` | OpenAI model to use | `gpt-4o-mini` |
+| `OPENAI_VOICE` | OpenAI voice model | `alloy` |
+| `AGENT_NAME` | Display name for the agent | `VoiceAI Assistant` |
+| `ENABLE_GREETING` | Send greeting on connect | `true` |
+| `PORT` | Dashboard server port | `3000` |
+| `LOG_LEVEL` | Logging level | `info` |
+
+### Audio Settings
+
+- **Sample Rate**: 16kHz (recommended for voice)
+- **Channels**: Mono (1 channel)
+- **VAD Sensitivity**: 0.5 (adjustable 0.0-1.0)
+- **Echo Cancellation**: Enabled
+- **Noise Suppression**: Enabled
+
+## 🏗️ Architecture
+
+### Components
+
+1. **VoiceAI Agent** (`agent.js`)
+   - Handles LiveKit room connections
+   - Manages voice sessions
+   - Integrates with OpenAI Realtime API
+   - Processes audio with VAD
+
+2. **Configuration Manager** (`config.js`)
+   - Centralized configuration
+   - Environment validation
+   - Logging setup
+
+3. **Dashboard Server** (`dashboard.js`)
+   - Real-time monitoring
+   - WebSocket updates
+   - REST API endpoints
+
+4. **Main Application** (`index.js`)
+   - Orchestrates all components
+   - Graceful shutdown handling
+
+### Data Flow
+
+```
+Client → LiveKit Room → VoiceAI Agent → OpenAI Realtime API → Response → Client
+                    ↓
+                Dashboard (monitoring)
+```
+
+## 🔌 API Endpoints
+
+### Dashboard API
+
+- `GET /` - Dashboard web interface
+- `GET /api/stats` - System statistics
+- `GET /api/config` - Configuration (safe)
+- `GET /api/health` - Health check
+- `GET /api/logs` - Recent logs
+
+### WebSocket Events
+
+- `stats` - Real-time statistics updates
+- `config` - Configuration updates
+- `requestStats` - Request current stats
+
+## 🚀 Deployment
+
+### Production Considerations
+
+1. **Environment**:
+   - Use production LiveKit server
+   - Secure API keys
+   - Configure proper logging
+
+2. **Scaling**:
+   - Multiple agent instances
+   - Load balancing
+   - Database for session storage
+
+3. **Monitoring**:
+   - Enable metrics collection
+   - Set up alerting
+   - Monitor resource usage
+
+### Docker Deployment
+
+```dockerfile
+# Example Dockerfile
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY . .
+EXPOSE 3000
+CMD ["npm", "start"]
+```
+
+## 🔧 Development
+
+### Scripts
+
+```bash
+# Development with auto-reload
+npm run dev
+
+# Run tests
+npm test
+
+# Lint code
+npm run lint
+
+# Format code
+npm run format
+```
+
+### Adding Features
+
+1. **Custom Plugins**: Extend agent with LiveKit plugins
+2. **Audio Processing**: Add custom audio filters
+3. **LLM Integration**: Support multiple LLM providers
+4. **Telephony**: Integrate SIP/PSTN connectivity
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+1. **Connection Failed**:
+   - Check LiveKit server status
+   - Verify API credentials
+   - Check network connectivity
+
+2. **Audio Issues**:
+   - Verify microphone permissions
+   - Check audio device settings
+   - Review VAD sensitivity
+
+3. **OpenAI Errors**:
+   - Validate API key
+   - Check model availability
+   - Monitor rate limits
+
+### Debug Mode
+
+```bash
+# Enable debug logging
+LOG_LEVEL=debug npm start
+
+# Check logs
+tail -f voiceai-agent.log
+```
+
+## 📚 Resources
+
+- [LiveKit Agents Documentation](https://docs.livekit.io/agents/)
+- [OpenAI Realtime API](https://platform.openai.com/docs/guides/realtime)
+- [LiveKit Server Setup](https://docs.livekit.io/realtime/server/)
+- [Node.js LiveKit SDK](https://docs.livekit.io/realtime/client-sdks/javascript/)
 
 ## 🤝 Contributing
 
-### Development Setup
 1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Install dependencies: `npm install`
-4. Make your changes
-5. Run tests: `npm test`
-6. Commit changes: `git commit -m 'Add amazing feature'`
-7. Push to branch: `git push origin feature/amazing-feature`
-8. Open a Pull Request
-
-### Code Style
-- Use ESLint configuration
-- Follow Node.js best practices
-- Add JSDoc comments for functions
-- Include unit tests for new features
-
-### Reporting Issues
-Please use the GitHub issue tracker to report bugs or request features.
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see LICENSE file for details.
 
-## 🙏 Acknowledgments
+## 🆘 Support
 
-- OpenAI for the Realtime API
-- SIP.js community for protocol insights
-- Node.js community for excellent libraries
-- Contributors and testers
-
-## 📞 Support
-
-For support and questions:
-- GitHub Issues: [Create an issue](https://github.com/TapasDas1982/VoiceAi/issues)
-- Documentation: [MASTER_DOCUMENTATION.md](MASTER_DOCUMENTATION.md)
-- Email: [Contact maintainer](mailto:support@voiceai.example.com)
+For issues and questions:
+- Check the troubleshooting section
+- Review LiveKit documentation
+- Open an issue on GitHub
 
 ---
 
-**🎉 Ready to deploy? All components are tested and production-ready!**
-
-*Built with ❤️ for the future of voice AI communication*
+**Built with ❤️ using LiveKit Agents framework**

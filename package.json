@@ -1,52 +1,62 @@
 {
-  "name": "voiceai-sip-system",
-  "version": "1.0.0",
-  "description": "SIP Voice AI system with ChatGPT integration and Google Sheets training data",
+  "name": "voiceai-livekit-agents",
+  "version": "2.0.0",
+  "description": "Voice AI system built with LiveKit Agents framework for real-time voice interactions",
   "main": "index.js",
+  "type": "module",
   "scripts": {
-    "start": "node app.js",
-    "dev": "nodemon app.js",
-    "sip-only": "node index.js",
-    "dashboard-only": "node dashboard.js",
-    "test": "node utils.js test",
-    "test-openai": "node utils.js test-openai",
-    "test-sheets": "node utils.js test-sheets",
-    "test-sip": "node utils.js test-sip",
-    "config": "node utils.js config",
-    "sample-data": "node utils.js sample-data",
-    "cleanup": "node utils.js cleanup"
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "sip": "node sip-app.js",
+    "sip:dev": "nodemon sip-app.js",
+    "test": "node test.js",
+    "build": "echo 'No build step required'",
+    "lint": "eslint .",
+    "format": "prettier --write ."
   },
   "keywords": [
-    "sip",
-    "voip",
-    "ai",
-    "chatgpt",
-    "voice",
+    "livekit",
+    "agents",
+    "voice-ai",
+    "real-time",
+    "webrtc",
+    "stt",
+    "tts",
+    "llm",
     "openai",
-    "google-sheets"
+    "telephony"
   ],
   "author": "VoiceAI System",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.5.0",
-    "axios": "^1.6.2",
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2",
-    "form-data": "^4.0.0",
-    "googleapis": "^128.0.0",
-    "multer": "^1.4.5-lts.1",
-    "node.js-sip": "^1.0.9",
-    "openai": "^5.12.0",
+    "@livekit/agents": "^0.7.9",
+    "@livekit/agents-plugin-deepgram": "^0.5.3",
+    "@livekit/agents-plugin-elevenlabs": "^0.6.1",
+    "@livekit/agents-plugin-openai": "^0.9.0",
+    "@livekit/agents-plugin-silero": "^0.5.3",
+    "@livekit/rtc-node": "^0.13.18",
+    "dotenv": "^16.4.5",
+    "livekit-server-sdk": "^2.6.1",
     "sdp-transform": "^2.15.0",
     "sip-parser": "^1.5.1",
-    "sip.js": "^0.21.2",
-    "sipjs-udp": "^0.0.17",
-    "ws": "^8.18.3"
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "@types/node": "^22.9.0",
+    "eslint": "^9.15.0",
+    "nodemon": "^3.1.7",
+    "prettier": "^3.3.3"
   },
   "engines": {
-    "node": ">=16.0.0"
-  }
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-username/voiceai-livekit-agents.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/voiceai-livekit-agents/issues"
+  },
+  "homepage": "https://github.com/your-username/voiceai-livekit-agents#readme"
 }

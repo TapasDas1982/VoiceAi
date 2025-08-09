@@ -1,106 +1,209 @@
-const express = require('express');
-const path = require('path');
-const fs = require('fs');
-require('dotenv').config();
+import express from 'express';
+import { createServer } from 'http';
+import { Server as SocketIOServer } from 'socket.io';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import winston from 'winston';
+import config from './config.js';
 
-class VoiceAIDashboard {
-  constructor(voiceAIInstance = null) {
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+/**
+ * Dashboard server for monitoring VoiceAI LiveKit Agents
+ */
+class Dashboard {
+  constructor() {
     this.app = express();
-    this.voiceAI = voiceAIInstance;
-    this.port = process.env.PORT || 3000;
-    this.callLogs = [];
-    this.systemStats = {
-      startTime: new Date(),
-      totalCalls: 0,
-      activeCalls: 0,
-      lastCallTime: null,
-      errors: []
+    this.server = createServer(this.app);
+    this.io = new SocketIOServer(this.server, {
+      cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+      }
+    });
+    
+    this.stats = {
+      startTime: Date.now(),
+      totalConnections: 0,
+      activeConnections: 0,
+      totalSessions: 0,
+      activeSessions: 0,
+      errors: 0,
+      lastActivity: null
     };
     
     this.setupMiddleware();
     this.setupRoutes();
+    this.setupSocketHandlers();
+    this.startStatsCollection();
+    
+    winston.info('📊 Dashboard initialized');
   }
 
+  /**
+   * Setup Express middleware
+   */
   setupMiddleware() {
     this.app.use(express.json());
+    this.app.use(express.urlencoded({ extended: true }));
     this.app.use(express.static(path.join(__dirname, 'public')));
+    
+    // CORS middleware
     this.app.use((req, res, next) => {
       res.header('Access-Control-Allow-Origin', '*');
       res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
       next();
     });
+    
+    // Logging middleware
+    this.app.use((req, res, next) => {
+      winston.info(`${req.method} ${req.path}`);
+      next();
+    });
   }
 
+  /**
+   * Setup API routes
+   */
   setupRoutes() {
-    // Dashboard home page
+    // Main dashboard page
     this.app.get('/', (req, res) => {
       res.send(this.generateDashboardHTML());
     });
 
     // API endpoints
-    this.app.get('/api/status', (req, res) => {
-      res.json({
-        status: 'running',
-        uptime: Date.now() - this.systemStats.startTime.getTime(),
-        stats: this.systemStats,
-        config: {
-          sipServer: process.env.SIP_SERVER || '122.163.120.156',
-          sipExtension: process.env.SIP_AUTHORIZATION_USER || '31',
-          hasOpenAI: !!process.env.OPENAI_API_KEY,
-          hasGoogleSheets: !!process.env.GOOGLE_SHEET_ID && process.env.GOOGLE_SHEET_ID !== 'your_google_sheet_id_here'
-        }
-      });
+    this.app.get('/api/stats', (req, res) => {
+      res.json(this.getStats());
     });
 
-    this.app.get('/api/logs', (req, res) => {
-      const limit = parseInt(req.query.limit) || 50;
-      res.json(this.callLogs.slice(-limit));
-    });
-
-    this.app.post('/api/call', async (req, res) => {
-      const { target } = req.body;
-      
-      if (!target) {
-        return res.status(400).json({ error: 'Target URI required' });
-      }
-      
-      try {
-        if (this.voiceAI && typeof this.voiceAI.makeCall === 'function') {
-          await this.voiceAI.makeCall(target);
-          this.logCall('outbound', target, 'initiated');
-          res.json({ success: true, message: `Call initiated to ${target}` });
-        } else {
-          res.status(503).json({ error: 'Voice AI system not available' });
-        }
-      } catch (error) {
-        this.logError('Call initiation failed', error);
-        res.status(500).json({ error: error.message });
-      }
-    });
-
-    this.app.post('/api/refresh-training', async (req, res) => {
-      try {
-        if (this.voiceAI && typeof this.voiceAI.loadSheetsData === 'function') {
-          await this.voiceAI.loadSheetsData();
-          res.json({ success: true, message: 'Training data refreshed' });
-        } else {
-          res.status(503).json({ error: 'Voice AI system not available' });
-        }
-      } catch (error) {
-        this.logError('Training data refresh failed', error);
-        res.status(500).json({ error: error.message });
-      }
+    this.app.get('/api/config', (req, res) => {
+      // Return safe config (without secrets)
+      const safeConfig = {
+        livekit: {
+          url: config.livekit.url,
+          room: config.livekit.room
+        },
+        openai: {
+          model: config.openai.model,
+          voice: config.openai.voice,
+          temperature: config.openai.temperature
+        },
+        audio: config.audio,
+        agent: config.agent,
+        server: config.server
+      };
+      res.json(safeConfig);
     });
 
     this.app.get('/api/health', (req, res) => {
-      res.json({ 
+      res.json({
         status: 'healthy',
-        timestamp: new Date().toISOString(),
-        version: '1.0.0'
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    // Logs endpoint
+    this.app.get('/api/logs', (req, res) => {
+      // This would read from log files in a real implementation
+      res.json({
+        logs: [
+          { timestamp: new Date().toISOString(), level: 'info', message: 'Dashboard accessed' }
+        ]
+      });
+    });
+
+    // Error handling
+    this.app.use((err, req, res, next) => {
+      winston.error('Dashboard error:', err);
+      this.stats.errors++;
+      res.status(500).json({ error: 'Internal server error' });
+    });
+  }
+
+  /**
+   * Setup Socket.IO handlers for real-time updates
+   */
+  setupSocketHandlers() {
+    this.io.on('connection', (socket) => {
+      winston.info(`📱 Dashboard client connected: ${socket.id}`);
+      this.stats.activeConnections++;
+      this.stats.totalConnections++;
+
+      // Send initial stats
+      socket.emit('stats', this.getStats());
+      socket.emit('config', this.getSafeConfig());
+
+      // Handle client disconnect
+      socket.on('disconnect', () => {
+        winston.info(`📱 Dashboard client disconnected: ${socket.id}`);
+        this.stats.activeConnections--;
+      });
+
+      // Handle stats request
+      socket.on('requestStats', () => {
+        socket.emit('stats', this.getStats());
       });
     });
   }
 
+  /**
+   * Start periodic stats collection and broadcasting
+   */
+  startStatsCollection() {
+    setInterval(() => {
+      const stats = this.getStats();
+      this.io.emit('stats', stats);
+    }, 5000); // Update every 5 seconds
+  }
+
+  /**
+   * Get current statistics
+   */
+  getStats() {
+    return {
+      ...this.stats,
+      uptime: Math.floor(process.uptime()),
+      memory: process.memoryUsage(),
+      cpu: process.cpuUsage(),
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Get safe configuration (without secrets)
+   */
+  getSafeConfig() {
+    return {
+      livekit: {
+        url: config.livekit.url,
+        room: config.livekit.room
+      },
+      openai: {
+        model: config.openai.model,
+        voice: config.openai.voice,
+        temperature: config.openai.temperature
+      },
+      audio: config.audio,
+      agent: config.agent,
+      server: config.server
+    };
+  }
+
+  /**
+   * Update session statistics
+   */
+  updateSessionStats(activeSessions, totalSessions) {
+    this.stats.activeSessions = activeSessions;
+    this.stats.totalSessions = totalSessions;
+    this.stats.lastActivity = new Date().toISOString();
+  }
+
+  /**
+   * Generate dashboard HTML
+   */
   generateDashboardHTML() {
     return `
 <!DOCTYPE html>
@@ -108,7 +211,8 @@ class VoiceAIDashboard {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice AI SIP Dashboard</title>
+    <title>VoiceAI LiveKit Agents Dashboard</title>
+    <script src="/socket.io/socket.io.js"></script>
     <style>
         * {
             margin: 0;
@@ -117,10 +221,10 @@ class VoiceAIDashboard {
         }
         
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
             color: #333;
+            min-height: 100vh;
         }
         
         .container {
@@ -145,7 +249,7 @@ class VoiceAIDashboard {
             opacity: 0.9;
         }
         
-        .dashboard {
+        .dashboard-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
@@ -154,20 +258,37 @@ class VoiceAIDashboard {
         
         .card {
             background: white;
-            border-radius: 15px;
-            padding: 25px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            transition: transform 0.3s ease;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
         }
         
         .card:hover {
-            transform: translateY(-5px);
+            transform: translateY(-2px);
         }
         
         .card h3 {
             color: #667eea;
             margin-bottom: 15px;
             font-size: 1.3em;
+        }
+        
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .stat-label {
+            font-weight: 500;
+        }
+        
+        .stat-value {
+            font-weight: bold;
+            color: #667eea;
         }
         
         .status-indicator {
@@ -179,84 +300,18 @@ class VoiceAIDashboard {
         }
         
         .status-online {
-            background: #4CAF50;
-            animation: pulse 2s infinite;
+            background-color: #4CAF50;
         }
         
         .status-offline {
-            background: #f44336;
+            background-color: #f44336;
         }
         
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-        
-        .stat-item {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 10px;
-            padding: 8px 0;
-            border-bottom: 1px solid #eee;
-        }
-        
-        .stat-value {
-            font-weight: bold;
-            color: #667eea;
-        }
-        
-        .button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 16px;
-            transition: all 0.3s ease;
-            margin: 5px;
-        }
-        
-        .button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-        }
-        
-        .button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .input-group {
-            margin-bottom: 15px;
-        }
-        
-        .input-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-        }
-        
-        .input-group input {
-            width: 100%;
-            padding: 10px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            font-size: 16px;
-        }
-        
-        .input-group input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        .logs {
+        .logs-container {
             background: white;
-            border-radius: 15px;
-            padding: 25px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             max-height: 400px;
             overflow-y: auto;
         }
@@ -264,24 +319,10 @@ class VoiceAIDashboard {
         .log-entry {
             padding: 8px;
             margin-bottom: 5px;
-            border-radius: 5px;
+            border-left: 3px solid #667eea;
+            background: #f8f9fa;
             font-family: monospace;
-            font-size: 14px;
-        }
-        
-        .log-info {
-            background: #e3f2fd;
-            color: #1976d2;
-        }
-        
-        .log-error {
-            background: #ffebee;
-            color: #d32f2f;
-        }
-        
-        .log-success {
-            background: #e8f5e8;
-            color: #388e3c;
+            font-size: 0.9em;
         }
         
         .footer {
@@ -290,303 +331,202 @@ class VoiceAIDashboard {
             margin-top: 30px;
             opacity: 0.8;
         }
+        
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎙️ Voice AI SIP Dashboard</h1>
-            <p>Monitor and manage your AI-powered voice system</p>
+            <h1>🤖 VoiceAI LiveKit Agents</h1>
+            <p>Real-time Voice AI Dashboard</p>
         </div>
         
-        <div class="dashboard">
+        <div class="dashboard-grid">
             <div class="card">
                 <h3>📊 System Status</h3>
                 <div class="stat-item">
-                    <span>SIP Status:</span>
-                    <span><span class="status-indicator status-online"></span><span id="sip-status">Online</span></span>
+                    <span class="stat-label">
+                        <span class="status-indicator status-online"></span>
+                        Agent Status
+                    </span>
+                    <span class="stat-value" id="agent-status">Online</span>
                 </div>
                 <div class="stat-item">
-                    <span>OpenAI API:</span>
-                    <span id="openai-status">✅ Connected</span>
+                    <span class="stat-label">Uptime</span>
+                    <span class="stat-value" id="uptime">0s</span>
                 </div>
                 <div class="stat-item">
-                    <span>Google Sheets:</span>
-                    <span id="sheets-status">⚠️ Not configured</span>
+                    <span class="stat-label">Memory Usage</span>
+                    <span class="stat-value" id="memory">0 MB</span>
                 </div>
                 <div class="stat-item">
-                    <span>Uptime:</span>
-                    <span class="stat-value" id="uptime">Loading...</span>
+                    <span class="stat-label">Last Activity</span>
+                    <span class="stat-value" id="last-activity">Never</span>
                 </div>
             </div>
             
             <div class="card">
-                <h3>📞 Call Statistics</h3>
+                <h3>👥 Sessions</h3>
                 <div class="stat-item">
-                    <span>Total Calls:</span>
-                    <span class="stat-value" id="total-calls">0</span>
+                    <span class="stat-label">Active Sessions</span>
+                    <span class="stat-value" id="active-sessions">0</span>
                 </div>
                 <div class="stat-item">
-                    <span>Active Calls:</span>
-                    <span class="stat-value" id="active-calls">0</span>
+                    <span class="stat-label">Total Sessions</span>
+                    <span class="stat-value" id="total-sessions">0</span>
                 </div>
                 <div class="stat-item">
-                    <span>Last Call:</span>
-                    <span class="stat-value" id="last-call">Never</span>
+                    <span class="stat-label">Dashboard Connections</span>
+                    <span class="stat-value" id="dashboard-connections">0</span>
                 </div>
                 <div class="stat-item">
-                    <span>Extension:</span>
-                    <span class="stat-value" id="extension">32</span>
+                    <span class="stat-label">Total Errors</span>
+                    <span class="stat-value" id="total-errors">0</span>
                 </div>
             </div>
             
             <div class="card">
-                <h3>🚀 Quick Actions</h3>
-                <div class="input-group">
-                    <label for="call-target">Make Outbound Call:</label>
-                    <input type="text" id="call-target" placeholder="sip:user@domain.com" />
+                <h3>⚙️ Configuration</h3>
+                <div class="stat-item">
+                    <span class="stat-label">LiveKit URL</span>
+                    <span class="stat-value" id="livekit-url">-</span>
                 </div>
-                <button class="button" onclick="makeCall()">📞 Initiate Call</button>
-                <button class="button" onclick="refreshTraining()">🔄 Refresh Training Data</button>
-                <button class="button" onclick="refreshDashboard()">📊 Refresh Dashboard</button>
+                <div class="stat-item">
+                    <span class="stat-label">OpenAI Model</span>
+                    <span class="stat-value" id="openai-model">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Voice</span>
+                    <span class="stat-value" id="openai-voice">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Sample Rate</span>
+                    <span class="stat-value" id="sample-rate">-</span>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>🎯 Agent Settings</h3>
+                <div class="stat-item">
+                    <span class="stat-label">Agent Name</span>
+                    <span class="stat-value" id="agent-name">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Greeting Enabled</span>
+                    <span class="stat-value" id="greeting-enabled">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Transcription</span>
+                    <span class="stat-value" id="transcription-enabled">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Max Session Duration</span>
+                    <span class="stat-value" id="max-session-duration">-</span>
+                </div>
             </div>
         </div>
         
-        <div class="logs">
-            <h3>📋 Recent Activity</h3>
-            <div id="logs-container">
-                <div class="log-entry log-info">System initialized and ready for calls...</div>
+        <div class="logs-container">
+            <h3>📝 Recent Activity</h3>
+            <div id="logs">
+                <div class="log-entry">[${new Date().toISOString()}] Dashboard initialized</div>
             </div>
         </div>
         
         <div class="footer">
-            <p>Voice AI SIP System v1.0.0 | Built with ❤️ for intelligent voice interactions</p>
+            <p>VoiceAI LiveKit Agents Dashboard • Last updated: <span id="last-update">Never</span></p>
         </div>
     </div>
     
     <script>
-        let refreshInterval;
+        const socket = io();
         
-        async function fetchStatus() {
-            try {
-                const response = await fetch('/api/status');
-                const data = await response.json();
-                
-                // Update status indicators
-                document.getElementById('sip-status').textContent = data.status === 'running' ? 'Online' : 'Offline';
-                document.getElementById('openai-status').textContent = data.config.hasOpenAI ? '✅ Connected' : '❌ Not configured';
-                document.getElementById('sheets-status').textContent = data.config.hasGoogleSheets ? '✅ Connected' : '⚠️ Not configured';
-                
-                // Update stats
-                document.getElementById('total-calls').textContent = data.stats.totalCalls;
-                document.getElementById('active-calls').textContent = data.stats.activeCalls;
-                document.getElementById('extension').textContent = data.config.sipExtension;
-                
-                // Update uptime
-                const uptimeMs = data.uptime;
-                const uptimeStr = formatUptime(uptimeMs);
-                document.getElementById('uptime').textContent = uptimeStr;
-                
-                // Update last call
-                if (data.stats.lastCallTime) {
-                    const lastCall = new Date(data.stats.lastCallTime);
-                    document.getElementById('last-call').textContent = lastCall.toLocaleString();
-                }
-                
-            } catch (error) {
-                console.error('Failed to fetch status:', error);
-                addLogEntry('Failed to fetch system status', 'error');
-            }
-        }
-        
-        async function fetchLogs() {
-            try {
-                const response = await fetch('/api/logs?limit=10');
-                const logs = await response.json();
-                
-                const container = document.getElementById('logs-container');
-                container.innerHTML = '';
-                
-                if (logs.length === 0) {
-                    container.innerHTML = '<div class="log-entry log-info">No recent activity</div>';
-                } else {
-                    logs.forEach(log => {
-                        const entry = document.createElement('div');
-                        entry.className = \`log-entry log-\${log.type}\`;
-                        entry.textContent = \`[\${new Date(log.timestamp).toLocaleTimeString()}] \${log.message}\`;
-                        container.appendChild(entry);
-                    });
-                }
-                
-            } catch (error) {
-                console.error('Failed to fetch logs:', error);
-            }
-        }
-        
-        async function makeCall() {
-            const target = document.getElementById('call-target').value.trim();
-            
-            if (!target) {
-                alert('Please enter a target URI');
-                return;
-            }
-            
-            try {
-                const response = await fetch('/api/call', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ target })
-                });
-                
-                const result = await response.json();
-                
-                if (response.ok) {
-                    addLogEntry(\`Call initiated to \${target}\`, 'success');
-                    document.getElementById('call-target').value = '';
-                } else {
-                    addLogEntry(\`Call failed: \${result.error}\`, 'error');
-                }
-                
-            } catch (error) {
-                addLogEntry(\`Call failed: \${error.message}\`, 'error');
-            }
-        }
-        
-        async function refreshTraining() {
-            try {
-                const response = await fetch('/api/refresh-training', {
-                    method: 'POST'
-                });
-                
-                const result = await response.json();
-                
-                if (response.ok) {
-                    addLogEntry('Training data refreshed successfully', 'success');
-                } else {
-                    addLogEntry(\`Training refresh failed: \${result.error}\`, 'error');
-                }
-                
-            } catch (error) {
-                addLogEntry(\`Training refresh failed: \${error.message}\`, 'error');
-            }
-        }
-        
-        function refreshDashboard() {
-            fetchStatus();
-            fetchLogs();
-            addLogEntry('Dashboard refreshed', 'info');
-        }
-        
-        function addLogEntry(message, type = 'info') {
-            const container = document.getElementById('logs-container');
-            const entry = document.createElement('div');
-            entry.className = \`log-entry log-\${type}\`;
-            entry.textContent = \`[\${new Date().toLocaleTimeString()}] \${message}\`;
-            
-            container.insertBefore(entry, container.firstChild);
-            
-            // Keep only last 20 entries
-            while (container.children.length > 20) {
-                container.removeChild(container.lastChild);
-            }
-        }
-        
-        function formatUptime(ms) {
-            const seconds = Math.floor(ms / 1000);
-            const minutes = Math.floor(seconds / 60);
-            const hours = Math.floor(minutes / 60);
-            const days = Math.floor(hours / 24);
-            
-            if (days > 0) {
-                return \`\${days}d \${hours % 24}h \${minutes % 60}m\`;
-            } else if (hours > 0) {
-                return \`\${hours}h \${minutes % 60}m \${seconds % 60}s\`;
-            } else if (minutes > 0) {
-                return \`\${minutes}m \${seconds % 60}s\`;
-            } else {
-                return \`\${seconds}s\`;
-            }
-        }
-        
-        // Handle Enter key in call input
-        document.getElementById('call-target').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                makeCall();
-            }
+        // Update stats display
+        socket.on('stats', (stats) => {
+            document.getElementById('uptime').textContent = formatUptime(stats.uptime);
+            document.getElementById('memory').textContent = formatMemory(stats.memory.heapUsed);
+            document.getElementById('active-sessions').textContent = stats.activeSessions;
+            document.getElementById('total-sessions').textContent = stats.totalSessions;
+            document.getElementById('dashboard-connections').textContent = stats.activeConnections;
+            document.getElementById('total-errors').textContent = stats.errors;
+            document.getElementById('last-activity').textContent = stats.lastActivity ? new Date(stats.lastActivity).toLocaleTimeString() : 'Never';
+            document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
         });
         
-        // Initialize dashboard
-        document.addEventListener('DOMContentLoaded', function() {
-            fetchStatus();
-            fetchLogs();
-            
-            // Auto-refresh every 30 seconds
-            refreshInterval = setInterval(() => {
-                fetchStatus();
-                fetchLogs();
-            }, 30000);
+        // Update config display
+        socket.on('config', (config) => {
+            document.getElementById('livekit-url').textContent = config.livekit.url;
+            document.getElementById('openai-model').textContent = config.openai.model;
+            document.getElementById('openai-voice').textContent = config.openai.voice;
+            document.getElementById('sample-rate').textContent = config.audio.sampleRate + 'Hz';
+            document.getElementById('agent-name').textContent = config.agent.name;
+            document.getElementById('greeting-enabled').textContent = config.agent.enableGreeting ? 'Yes' : 'No';
+            document.getElementById('transcription-enabled').textContent = config.agent.enableTranscription ? 'Yes' : 'No';
+            document.getElementById('max-session-duration').textContent = Math.round(config.agent.maxSessionDuration / 60000) + 'min';
         });
         
-        // Cleanup on page unload
-        window.addEventListener('beforeunload', function() {
-            if (refreshInterval) {
-                clearInterval(refreshInterval);
-            }
-        });
+        // Format uptime
+        function formatUptime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            return \`\${hours}h \${minutes}m \${secs}s\`;
+        }
+        
+        // Format memory usage
+        function formatMemory(bytes) {
+            return Math.round(bytes / 1024 / 1024) + ' MB';
+        }
+        
+        // Request stats every 10 seconds
+        setInterval(() => {
+            socket.emit('requestStats');
+        }, 10000);
     </script>
 </body>
 </html>
     `;
   }
 
-  logCall(type, target, status) {
-    const logEntry = {
-      timestamp: new Date().toISOString(),
-      type: 'info',
-      message: `${type.toUpperCase()} call ${status}: ${target}`
-    };
-    
-    this.callLogs.push(logEntry);
-    this.systemStats.totalCalls++;
-    this.systemStats.lastCallTime = new Date();
-    
-    // Keep only last 100 logs
-    if (this.callLogs.length > 100) {
-      this.callLogs = this.callLogs.slice(-100);
-    }
+  /**
+   * Start the dashboard server
+   */
+  async start() {
+    return new Promise((resolve, reject) => {
+      try {
+        this.server.listen(config.server.port, config.server.host, () => {
+          winston.info(`📊 Dashboard server started on http://${config.server.host}:${config.server.port}`);
+          resolve();
+        });
+      } catch (error) {
+        winston.error('❌ Failed to start dashboard server:', error);
+        reject(error);
+      }
+    });
   }
 
-  logError(message, error) {
-    const logEntry = {
-      timestamp: new Date().toISOString(),
-      type: 'error',
-      message: `${message}: ${error.message || error}`
-    };
-    
-    this.callLogs.push(logEntry);
-    this.systemStats.errors.push(logEntry);
-    
-    // Keep only last 50 errors
-    if (this.systemStats.errors.length > 50) {
-      this.systemStats.errors = this.systemStats.errors.slice(-50);
-    }
-  }
-
-  start() {
-    this.app.listen(this.port, () => {
-      console.log(`🌐 Voice AI Dashboard running at http://localhost:${this.port}`);
-      console.log(`📊 Access the dashboard in your web browser`);
+  /**
+   * Stop the dashboard server
+   */
+  async stop() {
+    return new Promise((resolve) => {
+      this.server.close(() => {
+        winston.info('📊 Dashboard server stopped');
+        resolve();
+      });
     });
   }
 }
 
-// Export for use in main application
-module.exports = VoiceAIDashboard;
+export default Dashboard;
 
-// Run standalone if called directly
-if (require.main === module) {
-  const dashboard = new VoiceAIDashboard();
-  dashboard.start();
+// Run dashboard if this file is executed directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const dashboard = new Dashboard();
+  dashboard.start().catch(console.error);
 }

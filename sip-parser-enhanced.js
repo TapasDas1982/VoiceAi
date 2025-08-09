@@ -1,6 +1,6 @@
-const sipParser = require('sip-parser');
-const sdpTransform = require('sdp-transform');
-const crypto = require('crypto');
+import sipParser from 'sip-parser';
+import sdpTransform from 'sdp-transform';
+import crypto from 'crypto';
 
 /**
  * Enhanced SIP Message Parser
@@ -509,6 +509,6 @@ class EnhancedSIPParser {
     }
 }
 
-module.exports = {
+export {
     EnhancedSIPParser
 };

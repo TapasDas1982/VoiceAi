@@ -1,5 +1,5 @@
-const EventEmitter = require('events');
-const crypto = require('crypto');
+import { EventEmitter } from 'events';
+import crypto from 'crypto';
 
 /**
  * SIP Session State Machine
@@ -656,7 +656,7 @@ class SIPSessionManager extends EventEmitter {
     }
 }
 
-module.exports = {
+export {
     SIPSession,
     SIPTransaction,
     SIPSessionManager
