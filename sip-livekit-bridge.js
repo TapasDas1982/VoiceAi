@@ -1,4 +1,6 @@
 import { SIPSessionManager } from './sip-session.js';
+import { RTPMediaBridge } from './rtp-media-bridge.js';
+import { LiveKitAudioForwarder } from './livekit-audio-forwarder.js';
 import dgram from 'dgram';
 import { EventEmitter } from 'events';
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
@@ -16,7 +18,7 @@ class SIPLiveKitBridge extends EventEmitter {
         this.config = {
             sipPort: config.sipPort || 5060,
             sipHost: config.sipHost || '0.0.0.0',
-            publicIp: config.publicIp || '122.163.120.156',
+            publicIp: config.publicIp || process.env.PUBLIC_IP || '122.163.120.156',
             sipAuthUser: config.sipAuthUser || '31',
             sipPassword: config.sipPassword || 'Twist@2025',
             sipServer: config.sipServer || '122.163.120.156:5060',
@@ -31,6 +33,21 @@ class SIPLiveKitBridge extends EventEmitter {
         this.activeCalls = new Map();
         this.livekitRoomService = null;
         
+        // Media bridge components
+        this.rtpMediaBridge = new RTPMediaBridge({
+            rtpPort: this.config.rtpPort || 10000,
+            rtpHost: this.config.rtpHost || '0.0.0.0'
+        });
+        
+        this.livekitAudioForwarder = new LiveKitAudioForwarder({
+            livekitUrl: this.config.livekitUrl,
+            livekitApiKey: this.config.livekitApiKey,
+            livekitApiSecret: this.config.livekitApiSecret
+        });
+        
+        // Set up media bridge event handlers
+        this.setupMediaBridgeEvents();
+        
         // SIP Extension Registration State
         this.registrationState = 'UNREGISTERED';
         this.registrationCallId = null;
@@ -38,7 +55,11 @@ class SIPLiveKitBridge extends EventEmitter {
         this.registrationTimer = null;
         this.registrationExpires = 3600; // 1 hour
         this.healthCheckTimer = null;
-        this.lastRegistrationTime = null
+        this.lastRegistrationTime = null;
+        
+        // Set local IP for Contact header (use public IP for UCM routing)
+        this.localIP = this.config.publicIp;
+        this.sipPort = this.config.sipPort;
         
         console.log('[SIPLiveKitBridge] Initialized as SIP Extension with config:', {
             sipPort: this.config.sipPort,
@@ -58,6 +79,91 @@ class SIPLiveKitBridge extends EventEmitter {
     }
     
     /**
+     * Find call ID based on source IP/port
+     */
+    findCallIdBySource(source) {
+        for (const [callId, call] of this.activeCalls) {
+            if (call.rinfo.address === source.address && call.rinfo.port === source.port) {
+                return callId;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Generate sequence number for RTP packets
+     */
+    generateSequenceNumber(callId) {
+        if (!this.sequenceNumbers) {
+            this.sequenceNumbers = new Map();
+        }
+        
+        let seq = this.sequenceNumbers.get(callId) || 0;
+        seq = (seq + 1) % 65536; // 16-bit sequence number
+        this.sequenceNumbers.set(callId, seq);
+        return seq;
+    }
+    
+    /**
+     * Generate SSRC for RTP packets
+     */
+    generateSSRC(callId) {
+        if (!this.ssrcMap) {
+            this.ssrcMap = new Map();
+        }
+        
+        if (!this.ssrcMap.has(callId)) {
+            // Generate random 32-bit SSRC
+            const ssrc = Math.floor(Math.random() * 0xFFFFFFFF);
+            this.ssrcMap.set(callId, ssrc);
+        }
+        
+        return this.ssrcMap.get(callId);
+    }
+
+    /**
+     * Set up media bridge event handlers
+     */
+    setupMediaBridgeEvents() {
+        // Handle RTP audio data from SIP side
+        this.rtpMediaBridge.on('audioData', (audioEvent) => {
+            const { pcmData, rtpHeader, source } = audioEvent;
+            
+            // Find call ID based on source IP/port
+            const callId = this.findCallIdBySource(source);
+            if (callId) {
+                // Forward audio to LiveKit
+                this.livekitAudioForwarder.forwardAudioToLiveKit(callId, pcmData, rtpHeader.timestamp);
+            }
+        });
+        
+        // Handle audio data from LiveKit side
+        this.livekitAudioForwarder.on('audioFromLiveKit', (audioEvent) => {
+            const { callId, g711Data, timestamp, codec } = audioEvent;
+            
+            // Get call info for RTP destination
+            const call = this.activeCalls.get(callId);
+            if (call) {
+                // Send RTP packet back to SIP caller
+                const payloadType = codec === 'PCMU' ? 0 : 8;
+                const sequenceNumber = this.generateSequenceNumber(callId);
+                const ssrc = this.generateSSRC(callId);
+                
+                this.rtpMediaBridge.sendRTPPacket(
+                    Buffer.from(g711Data),
+                    payloadType,
+                    sequenceNumber,
+                    timestamp,
+                    ssrc,
+                    { address: call.rinfo.address, port: call.rinfo.port + 1 } // RTP port is typically SIP port + 1
+                );
+            }
+        });
+        
+        console.log('[SIPLiveKitBridge] 🔗 Media bridge event handlers configured');
+    }
+    
+    /**
      * Start the SIP bridge as a SIP extension
      */
     async start() {
@@ -68,6 +174,10 @@ class SIPLiveKitBridge extends EventEmitter {
                 this.config.livekitApiKey,
                 this.config.livekitApiSecret
             );
+            
+            // Start media bridge components
+            await this.rtpMediaBridge.start();
+            console.log('[SIPLiveKitBridge] ✅ RTP media bridge started');
             
             // Start SIP server
             await this.startSIPServer();
@@ -517,8 +627,9 @@ class SIPLiveKitBridge extends EventEmitter {
             // Send 180 Ringing
             this.sendResponse(request, 180, 'Ringing', rinfo);
             
-            // Generate response SDP
-            const responseSdp = this.generateResponseSDP();
+            // Generate response SDP with RTP port
+            const rtpPort = this.config.rtpPort || 10000;
+            const responseSdp = this.generateResponseSDP(rtpPort);
             
             // Send 200 OK
             const responseHeaders = {
@@ -527,6 +638,12 @@ class SIPLiveKitBridge extends EventEmitter {
             };
             
             this.sendResponse(request, 200, 'OK', rinfo, responseHeaders, responseSdp);
+            
+            // Create audio session for this call
+            this.rtpMediaBridge.createAudioSession(callId, roomName, rinfo);
+            
+            // Connect LiveKit audio forwarder
+            await this.livekitAudioForwarder.createAudioConnection(callId, roomName, aiToken);
             
             // Store call information
             this.activeCalls.set(callId, {
@@ -656,7 +773,7 @@ class SIPLiveKitBridge extends EventEmitter {
     /**
      * Generate response SDP
      */
-    generateResponseSDP() {
+    generateResponseSDP(rtpPort = 10000) {
         const sessionId = Date.now();
         const version = sessionId;
         
@@ -666,7 +783,7 @@ class SIPLiveKitBridge extends EventEmitter {
             's=VoiceAI SIP Session',
             `c=IN IP4 ${this.config.publicIp}`,
             't=0 0',
-            'm=audio 10000 RTP/AVP 0 8',
+            `m=audio ${rtpPort} RTP/AVP 0 8`,
             'a=rtpmap:0 PCMU/8000',
             'a=rtpmap:8 PCMA/8000',
             'a=sendrecv'
@@ -772,6 +889,12 @@ class SIPLiveKitBridge extends EventEmitter {
         const call = this.activeCalls.get(callId);
         if (call) {
             try {
+                // Cleanup media bridge for this call
+                this.rtpMediaBridge.removeAudioSession(callId);
+                
+                // Disconnect LiveKit audio forwarder
+                await this.livekitAudioForwarder.removeAudioConnection(callId);
+                
                 // Delete LiveKit room
                 await this.livekitRoomService.deleteRoom(call.roomName);
                 console.log(`[SIPLiveKitBridge] 🗑️ Deleted LiveKit room: ${call.roomName}`);
@@ -836,6 +959,15 @@ class SIPLiveKitBridge extends EventEmitter {
         // Cleanup all active calls
         for (const callId of this.activeCalls.keys()) {
             await this.cleanupCall(callId);
+        }
+        
+        // Shutdown media bridge components
+        if (this.rtpMediaBridge) {
+            await this.rtpMediaBridge.stop();
+        }
+        
+        if (this.livekitAudioForwarder) {
+            await this.livekitAudioForwarder.stop();
         }
         
         // Close SIP socket
